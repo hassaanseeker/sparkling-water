@@ -19,6 +19,7 @@ package org.apache.spark.ml.spark.models
 
 import org.apache.spark.SparkContext
 import org.apache.spark.h2o.utils.SparkTestContext
+import org.apache.spark.ml.h2o.models.{H2OMOJOModel, H2OMojoPipelineModel}
 import org.junit.runner.RunWith
 import org.scalatest.FunSuite
 import org.scalatest.junit.JUnitRunner
@@ -32,7 +33,9 @@ class H2OMojoPipelineModelTest extends FunSuite with SparkTestContext {
   }
 
   test("Prediction on Mojo Pipeline (Mojo2)") {
-
+    val mojo = H2OMojoPipelineModel.createFromMojoPipeline(
+      this.getClass.getClassLoader.getResourceAsStream("mojo2data/mojo.mojo"),
+      "prostate_pipeline.mojo")
   }
 
 }
