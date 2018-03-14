@@ -1,26 +1,148 @@
 package org.apache.spark.ml.h2o.models
 
-import java.io.{File, FileInputStream, InputStream}
+import java.io._
+import java.util
+import java.util.Map
 
-import org.apache.spark.h2o.H2OFrame
-import org.apache.spark.ml.util.Identifiable
+import ai.h2o.mojos.runtime.MojoModel2
+import ai.h2o.mojos.runtime.readers.{MojoReaderBackend, MojoReaderContext}
+import ai.h2o.mojos.runtime.transforms.MojoTransformExecPipe
+import com.electronwill.toml.Toml
+import hex.genmodel.{ModelMojoReader, MojoReaderBackendFactory}
+import org.apache.spark.annotation.Since
+import org.apache.spark.h2o.utils.H2OSchemaUtils
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.ml.util._
+import org.apache.spark.ml.{Model => SparkModel}
+import org.apache.spark.sql.functions.{col, struct, udf}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.{DataFrame, Dataset, Row, SQLContext}
 
-class H2OMojoPipelineModel {
+import scala.reflect.ClassTag
 
 
-  def predict(h2OFrame: H2OFrame): H2OFrame = {
-    
+class H2OMojoPipelineModel(val mojoData: Array[Byte], override val uid: String)
+  extends SparkModel[H2OMojoPipelineModel] with MLWritable {
+
+  def this(mojoData: Array[Byte]) = this(mojoData, Identifiable.randomUID("mojoPipelineModel"))
+
+  val model: MojoModel2 = {
+    val data: util.Map[String, AnyRef] = Toml.read(modelFile, 65536, true)
+    val reader = new MojoTransformExecPipe.ChildMojoReaderBackend(mojo.backend, pwd)
+    val mojo = new MojoReaderContext(data, "Mojo", null, backend)
+    new MojoModel2(mojo)
+    MojoModel2.loadFrom(MojoModelFactory)
+  }
+
+  val outputCol = "prediction"
+
+  case class Mojo2Prediction(arr: Array[String])
+
+  private val modelUdf = (names: Array[String]) => udf[Mojo2Prediction, Row] {
+        r: Row =>
+          val inputFrame = model.getInputFrame
+          val data = r.getValuesMap(names).values.toArray.map(_.toString)
+          inputFrame.fillFromCsvData(names, Array(data))
+          model.transform()
+          val output = model.getOutputFrame.getNames.zipWithIndex.map { case(_, i) =>
+          model.getOutputFrame.getColumnData(i).toString
+        }
+          // get the output data
+          Mojo2Prediction(output)
+    }
+
+  def defaultFileName: String = H2OMojoPipelineModel.defaultFileName
+
+/*  def predictPerPartition(frame: DataFrame): DataFrame = {
+    frame.mapPartitions{ iterator =>
+      val input = iterator.toArray.map(r => r.getValuesMap(frame.columns).values.toArray.map(_.toString))
+      val inputFrame = model.getInputFrame
+      inputFrame.fillFromCsvData(frame.columns, input)
+      model.transform()
+      iterator.next() ++ model.transform()
+      iterator
+    }
+  }*/
+  override def copy(extra: ParamMap): H2OMojoPipelineModel = defaultCopy(extra)
+
+  override def write: MLWriter = new H2OMOJOPipelineModelWriter(this)
+
+  override def transform(dataset: Dataset[_]): DataFrame = {
+    val flatten = H2OSchemaUtils.flattenDataFrame(dataset.toDF())
+    val names = flatten.schema.fields.map(f => flatten(f.name))
+
+    // get the altered frame
+    flatten.select(col("*"), modelUdf(flatten.columns)(struct(names: _*)).as(outputCol))
+  }
+
+  def predictionSchema(): Seq[StructField] = {
+    val fields = StructField("original", ArrayType(DoubleType)) :: Nil
+    Seq(StructField(outputCol, StructType(fields), nullable = false))
+  }
+
+  override def transformSchema(schema: StructType): StructType = {
+    StructType(schema ++ predictionSchema())
   }
 }
 
-object H2OMojoPipelineModel {
+private[models] class H2OMOJOPipelineModelWriter(instance: H2OMojoPipelineModel) extends MLWriter {
 
-  def createFromMojoPipeline(path: String): H2OMojoPipelineModel = {
-    val f = new File(path)
-    createFromMojoPipeline(new FileInputStream(f), f.getName)
+  @org.apache.spark.annotation.Since("1.6.0")
+  override protected def saveImpl(path: String): Unit = {
+    DefaultParamsWriter.saveMetadata(instance, path, sc)
+    val file = new java.io.File(path, instance.defaultFileName)
+    val fos = new FileOutputStream(file)
+    try {
+      fos.write(instance.mojoData)
+    } finally {
+      fos.close()
+    }
+  }
+}
+
+private[models] class H2OMOJOModelPipelineReader
+(val defaultFileName: String) extends MLReader[H2OMojoPipelineModel] {
+
+  private val className = implicitly[ClassTag[H2OMojoPipelineModel]].runtimeClass.getName
+
+  @org.apache.spark.annotation.Since("1.6.0")
+  override def load(path: String): H2OMojoPipelineModel = {
+    val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
+    val file = new File(path, defaultFileName)
+    val is = new FileInputStream(file)
+    val mojoData = Stream.continually(is.read).takeWhile(_ != -1).map(_.toByte).toArray
+
+    val h2oModel = make(mojoData, metadata.uid)(sqlContext)
+    DefaultParamsReader.getAndSetParams(h2oModel, metadata)
+    h2oModel
   }
 
-  def createFromMojoPipeline(is: InputStream, uid: String = Identifiable.randomUID("mojoPipeline")): H2OMojoPipelineModel = {
-    null
+  def make(mojoData: Array[Byte], uid: String)(sqLContext: SQLContext): H2OMojoPipelineModel = {
+    new H2OMojoPipelineModel(mojoData, uid)
+  }
+}
+
+
+object H2OMojoPipelineModel extends MLReadable[H2OMojoPipelineModel] {
+  val defaultFileName = "mojo_pipeline_model"
+
+  @Since("1.6.0")
+  override def read: MLReader[H2OMojoPipelineModel] = new H2OMOJOModelPipelineReader(defaultFileName)
+
+  @Since("1.6.0")
+  override def load(path: String): H2OMojoPipelineModel = super.load(path)
+
+  def createFromMojo(path: String): H2OMojoPipelineModel = {
+    val f = new File(path)
+    createFromMojo(new FileInputStream(f), f.getName)
+  }
+
+  def createFromMojo(is: InputStream, uid: String = Identifiable.randomUID("mojoPipelineModel")): H2OMojoPipelineModel = {
+    val mojoData = Stream.continually(is.read).takeWhile(_ != -1).map(_.toByte).toArray
+    val sparkMojoModel = new H2OMojoPipelineModel(mojoData, uid)
+    val reader = MojoReaderBackendFactory.createReaderBackend(is, MojoReaderBackendFactory.CachingStrategy.MEMORY)
+    val m = ModelMojoReader.readFrom(reader)
+    // Reconstruct state of Spark H2O MOJO transformer based on H2O's Pipeline Mojo
+    sparkMojoModel
   }
 }
