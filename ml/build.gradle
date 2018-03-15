@@ -13,7 +13,7 @@ dependencies {
   // And Scala library
   compile "org.scala-lang:scala-library:${scalaVersion}"
 
-  compile "ai.h2o:mojo2:0.5.0"
+  compile "ai.h2o:mojo2:0.6.0-SNAPSHOT"
   // And use scalatest for Scala testing
   testCompile "org.scalatest:scalatest_${scalaBaseVersion}:2.2.1"
   testCompile "junit:junit:4.11"

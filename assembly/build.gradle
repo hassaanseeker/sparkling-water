@@ -31,7 +31,7 @@ configurations.archives.artifacts.removeAll { it.archiveTask.is(jar) }
 // Shadow jar settings
 shadowJar {
   mergeServiceFiles()
-  relocate 'javassist', 'ai.h2o.javassist'
+  //relocate 'javassist', 'ai.h2o.javassist'
   // Relocate Eclipse Jetty to avoid collisions with Spark Jetty (newer version)
   relocate 'org.eclipse.jetty', 'ai.h2o.org.eclipse.jetty'
   dependencies {
@@ -40,6 +40,7 @@ shadowJar {
     // to run inside Spark environment providing some jars 
     // (like hadoop, aws) on classpath
     //
+    include(dependency("ai.h2o:mojo2:0.6.0-SNAPSHOT"))
     include(project(":sparkling-water-core"))
     include(project(":sparkling-water-examples"))
     include(project(":sparkling-water-repl"))

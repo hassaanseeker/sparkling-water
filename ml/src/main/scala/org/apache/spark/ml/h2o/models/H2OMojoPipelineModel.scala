@@ -1,14 +1,9 @@
 package org.apache.spark.ml.h2o.models
 
 import java.io._
-import java.util
-import java.util.Map
 
 import ai.h2o.mojos.runtime.MojoModel2
-import ai.h2o.mojos.runtime.readers.{MojoReaderBackend, MojoReaderContext}
-import ai.h2o.mojos.runtime.transforms.MojoTransformExecPipe
-import com.electronwill.toml.Toml
-import hex.genmodel.{ModelMojoReader, MojoReaderBackendFactory}
+import ai.h2o.mojos.runtime.readers.Mojo2ReaderBackendFactory
 import org.apache.spark.annotation.Since
 import org.apache.spark.h2o.utils.H2OSchemaUtils
 import org.apache.spark.ml.param.ParamMap
@@ -24,15 +19,16 @@ import scala.reflect.ClassTag
 class H2OMojoPipelineModel(val mojoData: Array[Byte], override val uid: String)
   extends SparkModel[H2OMojoPipelineModel] with MLWritable {
 
-  def this(mojoData: Array[Byte]) = this(mojoData, Identifiable.randomUID("mojoPipelineModel"))
-
-  val model: MojoModel2 = {
-    val data: util.Map[String, AnyRef] = Toml.read(modelFile, 65536, true)
-    val reader = new MojoTransformExecPipe.ChildMojoReaderBackend(mojo.backend, pwd)
-    val mojo = new MojoReaderContext(data, "Mojo", null, backend)
-    new MojoModel2(mojo)
-    MojoModel2.loadFrom(MojoModelFactory)
+  var model: MojoModel2 = _
+  private def getOrCreateModel() = {
+    if (model == null) {
+      val reader = Mojo2ReaderBackendFactory.createReaderBackend(new ByteArrayInputStream(mojoData))
+      model = MojoModel2.loadFrom(reader)
+    }
+    model
   }
+
+  def this(mojoData: Array[Byte]) = this(mojoData, Identifiable.randomUID("mojoPipelineModel"))
 
   val outputCol = "prediction"
 
@@ -40,12 +36,13 @@ class H2OMojoPipelineModel(val mojoData: Array[Byte], override val uid: String)
 
   private val modelUdf = (names: Array[String]) => udf[Mojo2Prediction, Row] {
         r: Row =>
-          val inputFrame = model.getInputFrame
-          val data = r.getValuesMap(names).values.toArray.map(_.toString)
-          inputFrame.fillFromCsvData(names, Array(data))
-          model.transform()
-          val output = model.getOutputFrame.getNames.zipWithIndex.map { case(_, i) =>
-          model.getOutputFrame.getColumnData(i).toString
+          val m = getOrCreateModel()
+          val inputFrame = m.getInputFrame
+          val data = Array(r.getValuesMap[Any](names).values.toArray.map(_.toString))
+          inputFrame.fillFromCsvData(names, data)
+          m.transform()
+          val output = getOrCreateModel().getOutputFrame.getNames.zipWithIndex.map { case(_, i) =>
+          m.getOutputFrame.getColumnData(i).toString
         }
           // get the output data
           Mojo2Prediction(output)
@@ -140,9 +137,8 @@ object H2OMojoPipelineModel extends MLReadable[H2OMojoPipelineModel] {
   def createFromMojo(is: InputStream, uid: String = Identifiable.randomUID("mojoPipelineModel")): H2OMojoPipelineModel = {
     val mojoData = Stream.continually(is.read).takeWhile(_ != -1).map(_.toByte).toArray
     val sparkMojoModel = new H2OMojoPipelineModel(mojoData, uid)
-    val reader = MojoReaderBackendFactory.createReaderBackend(is, MojoReaderBackendFactory.CachingStrategy.MEMORY)
-    val m = ModelMojoReader.readFrom(reader)
     // Reconstruct state of Spark H2O MOJO transformer based on H2O's Pipeline Mojo
     sparkMojoModel
   }
+
 }
