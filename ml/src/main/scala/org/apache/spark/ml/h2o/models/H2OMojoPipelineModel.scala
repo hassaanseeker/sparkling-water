@@ -19,8 +19,8 @@ import scala.reflect.ClassTag
 class H2OMojoPipelineModel(val mojoData: Array[Byte], override val uid: String)
   extends SparkModel[H2OMojoPipelineModel] with MLWritable {
 
-  var model: MojoModel2 = _
-  private def getOrCreateModel() = {
+  private var model: MojoModel2 = _
+  def getOrCreateModel() = {
     if (model == null) {
       val reader = Mojo2ReaderBackendFactory.createReaderBackend(new ByteArrayInputStream(mojoData))
       model = MojoModel2.loadFrom(reader)
@@ -140,5 +140,4 @@ object H2OMojoPipelineModel extends MLReadable[H2OMojoPipelineModel] {
     // Reconstruct state of Spark H2O MOJO transformer based on H2O's Pipeline Mojo
     sparkMojoModel
   }
-
 }

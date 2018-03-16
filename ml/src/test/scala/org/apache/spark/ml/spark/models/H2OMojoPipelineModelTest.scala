@@ -33,9 +33,9 @@ class H2OMojoPipelineModelTest extends FunSuite with SparkTestContext {
   }
 
   test("Prediction on Mojo Pipeline (Mojo2)") {
-    val mojo = H2OMojoPipelineModel.createFromMojoPipeline(
+    val mojo = H2OMojoPipelineModel.createFromMojo(
       this.getClass.getClassLoader.getResourceAsStream("mojo2data/mojo.mojo"),
       "prostate_pipeline.mojo")
+    println(mojo.getOrCreateModel().getInputFrame().getNames)
   }
-
 }
