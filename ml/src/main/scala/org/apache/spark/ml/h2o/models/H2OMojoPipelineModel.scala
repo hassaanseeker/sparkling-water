@@ -38,8 +38,9 @@ class H2OMojoPipelineModel(val mojoData: Array[Byte], override val uid: String)
         r: Row =>
           val m = getOrCreateModel()
           val inputFrame = m.getInputFrame
+
           val data = Array(r.getValuesMap[Any](names).values.toArray.map(_.toString))
-          inputFrame.fillFromCsvData(names, data)
+          inputFrame.fillFromCsvData(r.getValuesMap[Any](names).keys.toArray, data)
           m.transform()
           val output = getOrCreateModel().getOutputFrame.getNames.zipWithIndex.map { case(_, i) =>
           m.getOutputFrame.getColumnData(i).toString

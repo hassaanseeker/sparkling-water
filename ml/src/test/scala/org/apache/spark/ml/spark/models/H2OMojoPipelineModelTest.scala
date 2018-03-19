@@ -20,10 +20,13 @@ package org.apache.spark.ml.spark.models
 import org.apache.spark.SparkContext
 import org.apache.spark.h2o.utils.SparkTestContext
 import org.apache.spark.ml.h2o.models.{H2OMOJOModel, H2OMojoPipelineModel}
+import org.apache.spark.sql.types.DoubleType
 import org.junit.runner.RunWith
 import org.scalatest.FunSuite
 import org.scalatest.junit.JUnitRunner
 import water.api.TestUtils
+
+import scala.collection.mutable
 @RunWith(classOf[JUnitRunner])
 class H2OMojoPipelineModelTest extends FunSuite with SparkTestContext {
 
@@ -39,7 +42,9 @@ class H2OMojoPipelineModelTest extends FunSuite with SparkTestContext {
     println(mojo.getOrCreateModel().getInputFrame.getNames.mkString(" "))
     println(mojo.getOrCreateModel().getInputFrame.getTypes.mkString(" "))
 
-    val df = spark.read.option("header", "true").csv("/Users/kuba/devel/repos/sparkling-water/examples/smalldata/prostate/prostate.csv")
-    mojo.transform(df).take(1)
+    val df = spark.read.option("header", "true").csv("/Users/kuba/devel/repos/sparkling-water/examples/smalldata/prostate/prostate.csv").drop("AGE")
+    println(mojo.transform(df).columns.mkString(" "))
+    //TODO: display the predicted data
+    println(mojo.transform(df).select("prediction").take(1)(0))
   }
 }
