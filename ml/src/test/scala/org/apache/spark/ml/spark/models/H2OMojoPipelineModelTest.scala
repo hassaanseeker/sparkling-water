@@ -23,7 +23,7 @@ import org.apache.spark.ml.h2o.models.{H2OMOJOModel, H2OMojoPipelineModel}
 import org.junit.runner.RunWith
 import org.scalatest.FunSuite
 import org.scalatest.junit.JUnitRunner
-
+import water.api.TestUtils
 @RunWith(classOf[JUnitRunner])
 class H2OMojoPipelineModelTest extends FunSuite with SparkTestContext {
 
@@ -36,6 +36,10 @@ class H2OMojoPipelineModelTest extends FunSuite with SparkTestContext {
     val mojo = H2OMojoPipelineModel.createFromMojo(
       this.getClass.getClassLoader.getResourceAsStream("mojo2data/mojo.mojo"),
       "prostate_pipeline.mojo")
-    println(mojo.getOrCreateModel().getInputFrame().getNames)
+    println(mojo.getOrCreateModel().getInputFrame.getNames.mkString(" "))
+    println(mojo.getOrCreateModel().getInputFrame.getTypes.mkString(" "))
+
+    val df = spark.read.option("header", "true").csv("/Users/kuba/devel/repos/sparkling-water/examples/smalldata/prostate/prostate.csv")
+    mojo.transform(df).take(1)
   }
 }
